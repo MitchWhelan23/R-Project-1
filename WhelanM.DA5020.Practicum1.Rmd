@@ -1,0 +1,237 @@
+---
+title: "Data Analytics & Visualization"
+author: "Mitchell Whelan"
+date: "Spring 2025"
+output: html_notebook
+subtitle: DA5020 / Practicum I
+---
+
+# Part A
+```{r loadTSV, echo=T}
+# Load data from the TSV file using url
+financeDF <- read.table("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/pharma-sales-randomized.tsv", header = TRUE, stringsAsFactors = FALSE,
+                        sep = '\t')
+```
+
+```{r loadPackage, echo=T}
+suppressPackageStartupMessages(library(kableExtra))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(lubridate))
+```
+
+# Part B
+```{r cleanData, echo=T}
+# iterate through all rows and clean revenue/expenses columns
+for (i in 1:nrow(financeDF)) {
+  financeDF$revenue[i] <- sub("\\$", "", financeDF$revenue[i])
+  financeDF$expenses[i] <- sub("\\$", "", financeDF$expenses[i])
+}
+# make both columns numeric for analysis
+financeDF$revenue <- as.numeric(financeDF$revenue)
+financeDF$expenses <- as.numeric(financeDF$expenses)
+```
+
+## I and II
+```{r manageOutliersAndMV, echo=T}
+## find outliers and missing values in revenue column and replace them with the mean
+mean.rev <- mean(financeDF$revenue, na.rm=TRUE)
+med.rev <- median(financeDF$revenue, na.rm=TRUE)
+sd.rev <- sd(financeDF$revenue, na.rm=TRUE)
+
+z.rev <- abs((financeDF$revenue - mean.rev) /  sd.rev)
+
+for (i in 1:length(z.rev)) {
+  if (is.na(z.rev[i])) {
+    financeDF$revenue[i] <- med.rev
+  }
+  else if (z.rev[i] > 2.5) {
+    financeDF$revenue[i] <- med.rev
+  }
+}
+
+## find outliers and missing values in expenses column and replace them with the mean
+mean.exp <- mean(financeDF$expenses, na.rm=TRUE)
+med.exp <- median(financeDF$expenses, na.rm=TRUE)
+sd.exp <- sd(financeDF$expenses, na.rm=TRUE)
+
+z.exp <- abs((financeDF$expenses - mean.exp) /  sd.exp)
+
+for (i in 1:length(z.exp)) {
+  if (is.na(z.exp[i])) {
+    financeDF$expenses[i] <- med.exp
+  }
+  else if (z.exp[i] > 2.5) {
+    financeDF$expenses[i] <- med.exp
+  }
+}
+```
+
+### Explanation:
+The above code identifies missing values by checking if the calculated z-score is an NA value and checks for outliers by checking if the data point is more than 2.5 standard deviations away from the mean. I chose to replace these outliers/missing values by the median of the corresponding column. I chose to replace the values rather than delete the entire row because we are dealing with month-by-month data and I feel that having random gaps in our data due to outliers/missing values will detract from our analysis. Furthermore, I chose to use the median of the column as a placeholder instead of the mean because the mean is much more susceptible to being impacted by outliers. The expenses column of this dataset is the perfect example. The mean was about 47 due to the one outlier, even though no other entries in that column are close to 47. The median is a great alternative as a placeholder that is less susceptible to outliers.
+
+## III
+```{r cleanDateColumn, echo=T}
+# changes date column to a DATE object and parses month, day, and year from that object
+financeDF$date <- mdy(financeDF$date)
+financeDF$month <- month(financeDF$date)
+financeDF$day <- day(financeDF$date)
+financeDF$year <- year(financeDF$date)
+```
+
+## IV
+```{r addProfitLoss, echo=T}
+# creates Profit/Loss column
+financeDF$ProfitLoss <- (financeDF$revenue - financeDF$expenses) * 1000
+```
+
+# Part C
+
+## Table 1
+```{r quarterlyRevenueTable, echo=T}
+# creates quarter column
+financeDF$quarter <- quarter(financeDF$date)
+
+# creates table using kable
+quarterly_revenue <- financeDF %>%
+  group_by(year, quarter) %>%
+  summarise(total_revenue = sum(revenue))
+
+quarterly_revenue_table <- quarterly_revenue %>%
+  kable("html", caption = "Quarterly Revenue per Year", col.names = c("Year", "Quarter", "Total Revenue")) %>%
+  kable_styling("striped", full_width = T)
+
+print(quarterly_revenue_table)
+```
+
+## Table 2
+```{r monthlyAvgTable, echo=T}
+# creates table using kable
+monthly_avg <- financeDF %>%
+  group_by(month) %>%
+  summarise(
+    avg_profit_loss = round(mean(ProfitLoss), 2)
+  )
+
+monthly_avg_table <- monthly_avg %>%
+  kable("html", caption = "Monthly Average Profit/Loss Across Years", col.names = c("Month","Average Profit/Loss")) %>%
+  kable_styling("striped", full_width = T)
+
+print(monthly_avg_table)
+```
+
+## Table 3
+```{r pctChangeTable, echo=T}
+# arranges columns chronologically and then calculates percentage change using lag
+monthlyChangeTable <- financeDF %>%
+  arrange(year, month) %>%
+  mutate(
+    revenueChange = round((revenue - lag(revenue)) / lag(revenue) * 100, 2),
+    expensesChange = round((expenses - lag(expenses)) / lag(expenses) * 100, 2),
+    profitLossChange = round((ProfitLoss - lag(ProfitLoss)) / lag(ProfitLoss) * 100, 2)) %>%
+  select(year, month, revenueChange, expensesChange, profitLossChange
+  ) 
+
+# Create the table with kable
+monthlyChangeTableKable <- monthlyChangeTable %>%
+  kable("html", caption = "Percentage Change in Revenue, Expenses, and Profit/Loss from Previous Month", col.names = c("Year", "Month", "Revenue Change (%)", "Expenses Change (%)", "Profit/Loss Change (%)")) %>%
+  kable_styling("striped", full_width = T)
+
+print(monthlyChangeTableKable)
+```
+
+# Part D
+```{r addPredictionRow, echo=T}
+# arrance the dataframe by year and month so that the most recent data entry is at the bottom row of the dataframe
+financeDF <- financeDF %>%
+  arrange(year, month)
+
+#calculate the prediction using the bottom row of financeDF
+predictionRow <- data.frame(
+  date = financeDF$date[nrow(financeDF)] + months(1),
+  revenue = .6*financeDF$revenue[nrow(financeDF)] + .3*financeDF$revenue[nrow(financeDF) - 1] + .1*financeDF$revenue[nrow(financeDF) - 2],
+  expenses = .6*financeDF$expenses[nrow(financeDF)] + .3*financeDF$expenses[nrow(financeDF) - 1] + .1*financeDF$expenses[nrow(financeDF) - 2])
+
+predictionRow$month = month(predictionRow$date)
+predictionRow$day = 1
+predictionRow$year = year(predictionRow$date)
+predictionRow$ProfitLoss = (predictionRow$revenue - predictionRow$expenses) * 1000
+predictionRow$quarter = quarter(predictionRow$date)
+
+print(predictionRow)
+```
+
+# Part E
+```{r addPredRowFunc, echo=T}
+#function that adds a new row to the given financeDF with appropriate data
+addPredRow <- function(df) {
+  newRow <- data.frame(
+  date = df$date[nrow(df)] + months(1),
+  revenue = .6*df$revenue[nrow(df)] + .3*df$revenue[nrow(df) - 1] + .1*df$revenue[nrow(df) - 2],
+  expenses = .6*df$expenses[nrow(df)] + .3*df$expenses[nrow(df) - 1] + .1*df$expenses[nrow(df) - 2])
+
+  newRow$month = month(newRow$date)
+  newRow$day = 1
+  newRow$year = year(newRow$date)
+  newRow$ProfitLoss = (newRow$revenue - newRow$expenses) * 1000
+  newRow$quarter = quarter(newRow$date)
+  
+  newDF <- rbind(df, newRow)
+  return(newDF)
+}
+```
+
+
+```{r buildVisualDF, echo=T}
+#arrange the dataframe chronologically
+visualDF <- financeDF %>%
+  arrange(year, month)
+
+# need to add a new row twice for plotting the predicted profit/loss
+visualDF <- addPredRow(visualDF)
+visualDF <- addPredRow(visualDF)
+
+# needed for scale
+visualDF$ProfitLoss <- visualDF$ProfitLoss / 1000
+
+#can't calculate prediction for these points so give placeholders
+visualDF$predProfitLoss[1] <- 0
+visualDF$predProfitLoss[2] <- 0
+visualDF$predProfitLoss[3] <- 0
+
+# calculate the predicted profit/loss for each row after 3
+for (i in 1:nrow(visualDF)) {
+  if (i > 3) {
+    visualDF$predProfitLoss[i] <- .6*visualDF$revenue[i-1] + .3*visualDF$revenue[i-2] + .1*visualDF$revenue[i-3] - (.6*visualDF$expenses[i-1] + .3*visualDF$expenses[i-2] + .1*visualDF$expenses[i-3])
+  }
+}
+
+```
+
+
+```{r buildVisual, echo = T}
+# Plot the first line and set up axis
+plot(visualDF[1:(nrow(visualDF) - 2), ]$date, visualDF[1:(nrow(visualDF) - 2), ]$ProfitLoss, type = "l", frame = FALSE, pch = 19, 
+     main = "Profit & Loss By Month",
+     sub = "Trend Over Time",
+     col = "blue", xlab = "Date (Monthly)", ylab = "Amount (Thousands of $)", xaxt = "n", lwd = 2)
+
+# set up indices for labels
+indices <- seq(1, nrow(visualDF), by = 12)
+
+# Plot the second line
+lines(visualDF[4:nrow(visualDF), ]$date, visualDF[4:nrow(visualDF), ]$predProfitLoss, pch = 19, col = "red", type = "l", lwd = 2)
+
+# add labels every 12 months
+axis(1, at = visualDF[indices, ]$date, labels = format(visualDF[indices, ]$date, "%b %y"))
+
+# add the legend
+legend("topright", legend=c("Actual Profit/Loss", "Predicted Profit/Loss"),
+       col=c("blue", "red"), lty = 1:1, cex=1)
+
+#manually add source
+mtext("Source: Internal Accounting \n Data -- CONFIDENTIAL", side = 1, line = 4, cex = 0.8, adj = 0, col = "black")
+
+```
+
+
+
