@@ -1,4 +1,4 @@
-# 📊 Data Analytics & Visualization: CFO Practicum Project
+# Data Analytics & Visualization: CFO Practicum Project
 
 ## Overview
 This project was developed in **R** as part of a practicum focused on applying data analytics and visualization techniques to solve a realistic business problem. The scenario involved assisting the CFO of Plaxium LLC, Dr. Alicia Kerns, in preparing presentation materials for senior leadership.  
